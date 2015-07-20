@@ -32,6 +32,12 @@ import android.os.Binder;
 import android.os.IBinder;
 import android.util.Log;
 
+import com.movisens.smartgattlib.Characteristic;
+import com.movisens.smartgattlib.Descriptor;
+import com.movisens.smartgattlib.characteristics.BatteryLevel;
+import com.movisens.smartgattlib.characteristics.BodySensorLocation;
+import com.movisens.smartgattlib.characteristics.HeartRateMeasurement;
+
 import java.util.List;
 import java.util.UUID;
 
@@ -62,9 +68,6 @@ public class BluetoothLeService extends Service {
             "com.example.bluetooth.le.ACTION_DATA_AVAILABLE";
     public final static String EXTRA_DATA =
             "com.example.bluetooth.le.EXTRA_DATA";
-
-    public final static UUID UUID_HEART_RATE_MEASUREMENT =
-            UUID.fromString(SampleGattAttributes.HEART_RATE_MEASUREMENT);
 
     // Implements callback methods for GATT events that the app cares about.  For example,
     // connection change and services discovered.
@@ -124,24 +127,26 @@ public class BluetoothLeService extends Service {
         final Intent intent = new Intent(action);
 
         // This is special handling for the Heart Rate Measurement profile.  Data parsing is
-        // carried out as per profile specifications:
-        // http://developer.bluetooth.org/gatt/characteristics/Pages/CharacteristicViewer.aspx?u=org.bluetooth.characteristic.heart_rate_measurement.xml
-        if (UUID_HEART_RATE_MEASUREMENT.equals(characteristic.getUuid())) {
-            int flag = characteristic.getProperties();
-            int format = -1;
-            if ((flag & 0x01) != 0) {
-                format = BluetoothGattCharacteristic.FORMAT_UINT16;
-                Log.d(TAG, "Heart rate format UINT16.");
-            } else {
-                format = BluetoothGattCharacteristic.FORMAT_UINT8;
-                Log.d(TAG, "Heart rate format UINT8.");
-            }
-            final int heartRate = characteristic.getIntValue(format, 1);
-            Log.d(TAG, String.format("Received heart rate: %d", heartRate));
-            intent.putExtra(EXTRA_DATA, String.valueOf(heartRate));
+        // carried out by the SmartGattLib
+        UUID characteristicUuid = characteristic.getUuid();
+        final byte[] data = characteristic.getValue();
+        if (Characteristic.HEART_RATE_MEASUREMENT.equals(characteristicUuid)) { // Identify
+            // Characteristic
+            HeartRateMeasurement hrm = new HeartRateMeasurement(data); // Interpret
+            // Characteristic
+            intent.putExtra(EXTRA_DATA, "HR: " + hrm.getHr() + "bpm" + ", EE: "
+                    + hrm.getEe() + "kJ" + ", Status: " + hrm.getSensorWorn());
+        } else if (Characteristic.BODY_SENSOR_LOCATION
+                .equals(characteristicUuid)) {
+            BodySensorLocation bsl = new BodySensorLocation(data);
+            intent.putExtra(EXTRA_DATA,
+                    "Body Sensor Location: " + bsl.getBodySensorLocation());
+        } else if (Characteristic.BATTERY_LEVEL.equals(characteristicUuid)) {
+            BatteryLevel bl = new BatteryLevel(data);
+            intent.putExtra(EXTRA_DATA, "BatteryLevel: " + bl.getBatteryLevel()
+                    + "%");
         } else {
             // For all other profiles, writes the data formatted in HEX.
-            final byte[] data = characteristic.getValue();
             if (data != null && data.length > 0) {
                 final StringBuilder stringBuilder = new StringBuilder(data.length);
                 for(byte byteChar : data)
@@ -297,10 +302,9 @@ public class BluetoothLeService extends Service {
         mBluetoothGatt.setCharacteristicNotification(characteristic, enabled);
 
         // This is specific to Heart Rate Measurement.
-        if (UUID_HEART_RATE_MEASUREMENT.equals(characteristic.getUuid())) {
-            BluetoothGattDescriptor descriptor = characteristic.getDescriptor(
-                    UUID.fromString(SampleGattAttributes.CLIENT_CHARACTERISTIC_CONFIG));
-            descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
+        if (Characteristic.HEART_RATE_MEASUREMENT.equals(characteristic.getUuid())) {
+            BluetoothGattDescriptor descriptor = characteristic.getDescriptor(Descriptor.CLIENT_CHARACTERISTIC_CONFIGURATION);
+            descriptor.setValue(enabled ? BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE : BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE);
             mBluetoothGatt.writeDescriptor(descriptor);
         }
     }
